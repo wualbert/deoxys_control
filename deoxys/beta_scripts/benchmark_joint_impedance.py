@@ -107,6 +107,7 @@ def move_to_target_joints(
     Use joint impedance controller to move to a new joint position using interpolation.
     """
     while True:
+        # If the robot is already close to the target, skip
         if len(robot_interface._state_buffer) > 0:
             if np.max(np.abs(np.array(robot_interface._state_buffer[-1].q))) < 1e-3:
                 print(
@@ -125,8 +126,8 @@ def move_to_target_joints(
         interpolation_method=interpolation_method,
     )
 
-    print("current: ", current_q)
-    print("target: ", target_q)
+    # print("current: ", current_q)
+    # print("target: ", target_q)
     # try to follow path
     controller_type = "JOINT_IMPEDANCE"
 
@@ -134,6 +135,7 @@ def move_to_target_joints(
     state_history = []
     prev_action = list(current_q)
     for i, jpos_t in enumerate(jpos_steps):
+        # Send interpolated steps
         action = list(jpos_t) + [-1.0]
 
         # print("step {}, action {}".format(i, np.round(action, 2)))
@@ -167,13 +169,14 @@ def move_to_target_joints(
     state_history = np.array(state_history)
     # print final error
     current_q = np.array(robot_interface._state_buffer[-1].q)
-    print("absolute error: {}".format(np.abs(target_q - current_q)))
+    # print("absolute error: {}".format(np.abs(target_q - current_q)))
     return {
         "target_q": target_q,
         "reached_q": reached_q.tolist(),
         "reached_q_in_addtional_steps": current_q.tolist(),
         "state_history": state_history,
         "action_history": action_history,
+        "final_q_error": np.abs(target_q - current_q),
     }
 
 
@@ -340,7 +343,7 @@ def main():
             ],
         ),  # mix rotate + move 2
     ]
-
+    print("Testing {} configurations".format(len(joint_configuration_tuples)))
     robot_interface = FrankaInterface(
         config_root + f"/{args.interface_cfg}", use_visualizer=False
     )
@@ -349,12 +352,17 @@ def main():
     datafile_name = f"{args.folder}/data.hdf5"
     with h5py.File(datafile_name, "w") as datafile:
         data_grp = datafile.create_group("data")
-        for exp_id in range(num_exp):
-            count = 0
-            for num_steps in num_steps_list:
-                for traj_interpolation_fraction in traj_interpolation_fraction_list:
-                    for interpolation_method in ["linear", "min_jerk"]:
-                        for joint_kp, joint_kd in K_list:
+        count = 0
+        for num_steps in num_steps_list:
+            for traj_interpolation_fraction in traj_interpolation_fraction_list:
+                for interpolation_method in ["linear", "min_jerk"]:
+                    for joint_kp, joint_kd in K_list:
+                        print(
+                            f"\n Parameters: num_steps={num_steps}, traj_interpolation_fraction={traj_interpolation_fraction}, interpolation_method={interpolation_method}, K={joint_kp}, D={joint_kd}"
+                        )
+                        errors = []
+                        for exp_id in range(num_exp):
+                            print(f"Starting experiment {exp_id+1} of {num_exp}")
                             for start_q, target_q in joint_configuration_tuples:
                                 count += 1
                                 ep_grp = data_grp.create_group(f"{exp_id}_{count}")
@@ -394,8 +402,14 @@ def main():
                                 ep_grp.create_dataset(
                                     "action_history", data=result_info["action_history"]
                                 )
-                                # break
+                                errors.append(result_info["final_q_error"])
+
+                            # break
                             # To be removed later
+                        errors = np.array(errors)
+                        print(
+                            f"Final q L2 error: {np.mean(errors)} +/- {np.std(errors)} (max {np.max(errors)}) over {len(errors)} trials \n"
+                        )
             #                 break
             #             break
             #         break

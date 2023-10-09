@@ -11,7 +11,6 @@ logger = get_deoxys_example_logger()
 
 
 def main():
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--interface-cfg", type=str, default="config/charmander.yml")
     parser.add_argument("--controller-type", type=str, default="OSC_POSE")
@@ -58,7 +57,7 @@ def main():
     robot_interface.close()
 
     # Check if there is any state frame missing
-    for (state, next_state) in zip(
+    for state, next_state in zip(
         robot_interface._state_buffer[:-1], robot_interface._state_buffer[1:]
     ):
         if (next_state.frame - state.frame) > 1:

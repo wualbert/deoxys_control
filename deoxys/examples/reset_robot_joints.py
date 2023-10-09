@@ -52,7 +52,6 @@ def main():
         2.30396583422025,
         0.8480939705504309,
     ]
-
     # This is for varying initialization of joints a little bit to
     # increase data variation.
     reset_joint_positions = [
@@ -60,7 +59,6 @@ def main():
         for e in reset_joint_positions
     ]
     action = reset_joint_positions + [-1.0]
-
     while True:
         if len(robot_interface._state_buffer) > 0:
             logger.info(f"Current Robot joint: {np.round(robot_interface.last_q, 3)}")
