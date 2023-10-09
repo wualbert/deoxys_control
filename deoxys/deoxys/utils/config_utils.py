@@ -38,6 +38,7 @@ def robot_config_parse_args(parser=None):
         add_robot_config_arguments(parser)
         add_controller_config_arguments(parser)
 
+
 # Controller configs
 
 
@@ -64,6 +65,21 @@ def get_available_controller_configs(config_folder: str = None, verbose: bool = 
         config = YamlConfig(config_file_name).as_easydict()
         config_dict[config["controller_type"]] = config
     return config_dict
+
+
+def get_controller_config_from_file(config_path: str) -> EasyDict:
+    """Get the controller config from a given config file.
+
+    Args:
+        config_path (str): Path to the config file
+        controller_type (str): Controller type name.
+
+    Returns:
+        Type(EasyDict): An easy dictionary of controller configuration
+    """
+    controller_cfg = YamlConfig(config_path).as_easydict()
+    controller_cfg = verify_controller_config(controller_cfg)
+    return controller_cfg
 
 
 def get_default_controller_config(controller_type: str) -> EasyDict:
@@ -213,7 +229,7 @@ def verify_controller_config(controller_cfg: dict, use_default=True):
             }
             logger.warning("field traj_interpolator_cfg not specified!!!")
             field_missing = True
-    
+
     elif controller_cfg["controller_type"] == "CARTESIAN_VELOCITY":
         if not check_attr(controller_cfg, "traj_interpolator_cfg"):
             controller_cfg["traj_interpolator_cfg"] = {
@@ -222,7 +238,7 @@ def verify_controller_config(controller_cfg: dict, use_default=True):
             }
             logger.warning("field traj_interpolator_cfg not specified!!!")
             field_missing = True
-    
+
     if field_missing and not use_default:
         logger.error(
             "Some field in controller is not specified and default config option is not turned on!!!"

@@ -24,7 +24,7 @@ def main():
     controller_cfg = YamlConfig(
         config_root + "/compliant-joint-impedance-controller.yml"
     ).as_easydict()
-    controller_type = "JOINT_IMPEDANCE"
+    controller_type = "OSC_POSE"
 
     joints = []
 
@@ -33,11 +33,11 @@ def main():
     while True:
         spacemouse_action, grasp = input2action(
             device=device,
-            controller_type="OSC_POSE",
+            controller_type=controller_type,
         )
 
-        if spacemouse_action is None:
-            break
+        # if spacemouse_action is None:
+        #     break
 
         if len(robot_interface._state_buffer) > 0:
             if spacemouse_action[-1] > 0 and not recorded_joint:
