@@ -193,10 +193,22 @@ def main():
     traj_interpolation_fraction_list = [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]
     K_list = [
         (
-            [100.0, 100.0, 100.0, 100.0, 75.0, 150.0, 50.0],
-            [20.0, 20.0, 20.0, 20.0, 7.5, 15.0, 5.0],
+            [300.0, 300.0, 300.0, 300.0, 225.0, 450.0, 150.0],
+            None,
         ),
-        ([100.0, 100.0, 100.0, 100.0, 75.0, 150.0, 50.0], None),
+        (
+            [300.0, 300.0, 300.0, 300.0, 225.0, 450.0, 150.0],
+            [20.0, 20.0, 20.0, 20.0, 7.5, 15.0, 5.0],
+        )
+        # (
+        #     [300.0, 300.0, 300.0, 300.0, 225.0, 450.0, 150.0],
+        #     [60.0, 60.0, 60.0, 60.0, 22.5, 45.0, 15.0],
+        # ),
+        # (
+        #     [100.0, 100.0, 100.0, 100.0, 75.0, 150.0, 50.0],
+        #     [20.0, 20.0, 20.0, 20.0, 7.5, 15.0, 5.0],
+        # ),
+        # ([100.0, 100.0, 100.0, 100.0, 75.0, 150.0, 50.0], None),
     ]
 
     reset_joint_positions = [
@@ -363,6 +375,7 @@ def main():
                         errors = []
                         for exp_id in range(num_exp):
                             print(f"Starting experiment {exp_id+1} of {num_exp}")
+                            all_action_hist, all_state_hist = [], []
                             for start_q, target_q in joint_configuration_tuples:
                                 count += 1
                                 ep_grp = data_grp.create_group(f"{exp_id}_{count}")
@@ -403,6 +416,12 @@ def main():
                                     "action_history", data=result_info["action_history"]
                                 )
                                 errors.append(result_info["final_q_error"])
+                                all_action_hist.extend(result_info["action_history"])
+                                all_state_hist.extend(result_info["state_history"])
+                            plt.plot(all_action_hist, "b.")
+                            plt.plot(all_state_hist, "r-")
+                            plt.legend(["state_hist", "action_hist"])
+                            plt.show()
 
                             # break
                             # To be removed later
