@@ -489,6 +489,7 @@ class FrankaInterface:
 
         Args:
             action (float): The control command for Franka gripper. Currently assuming scalar control commands.
+            action should be between 0 and 1
         """
 
         gripper_control_msg = franka_controller_pb2.FrankaGripperControlMessage()
