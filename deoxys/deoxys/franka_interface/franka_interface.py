@@ -502,7 +502,7 @@ class FrankaInterface:
         # if action < 0.0:  #  and self.last_gripper_action == 1):
         move_msg = franka_controller_pb2.FrankaGripperMoveMessage()
         move_msg.width = 0.08 * np.clip(action, 0.0, 1.0)
-        move_msg.speed = 0.1
+        move_msg.speed = 0.5
         gripper_control_msg.control_msg.Pack(move_msg)
 
         # logger.debug("Gripper actuating to width: {}".format(move_msg.width / 0.08))
