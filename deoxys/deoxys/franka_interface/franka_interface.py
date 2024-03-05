@@ -484,14 +484,24 @@ class FrankaInterface:
         if self.use_visualizer and len(self._state_buffer) > 0:
             self.visualizer.update(joint_positions=np.array(self._state_buffer[-1].q))
 
-    def gripper_control(self, action: float):
+    def gripper_control(
+        self,
+        action: float,
+        force: float = 20.0,
+        speed: float = 0.5,
+        epsilon_inmnner: float = 0.08,
+        epsilon_outer: float = 0.08,
+    ):
         """Control the gripper
+
+        See https://frankaemika.github.io/libfranka/classfranka_1_1Gripper.html#abff6a03a6c75b9079bd4b9b5ca380254
+        An object is considered grasped if the distance between the gripper fingers is between
+        width-epsilon_inner and width+epsilon_outer
 
         Args:
             action (float): The control command for Franka gripper. Currently assuming scalar control commands.
             action should be between 0 and 1
         """
-
         gripper_control_msg = franka_controller_pb2.FrankaGripperControlMessage()
 
         # action 0-> 1 : Grasp
@@ -500,21 +510,28 @@ class FrankaInterface:
         # TODO (Yifeng): Test if sending grasping or gripper directly
         # will stop executing the previous command
         # if action < 0.0:  #  and self.last_gripper_action == 1):
-        move_msg = franka_controller_pb2.FrankaGripperMoveMessage()
-        move_msg.width = 0.08 * np.clip(action, 0.0, 1.0)
-        move_msg.speed = 0.5
-        gripper_control_msg.control_msg.Pack(move_msg)
+
+        # for the arguments
+
+        if action >= 1:
+            # Fully open the gripper
+            move_msg = franka_controller_pb2.FrankaGripperMoveMessage()
+            move_msg.width = 0.08 * np.clip(action, 0.0, 1.0)
+            move_msg.speed = 0.5
+            gripper_control_msg.control_msg.Pack(move_msg)
+
+        else:
+            grasp_msg = franka_controller_pb2.FrankaGripperGraspMessage()
+            grasp_msg.width = action
+            grasp_msg.speed = speed
+            grasp_msg.force = force
+            grasp_msg.epsilon_inner = epsilon_inmnner
+            grasp_msg.epsilon_outer = epsilon_outer
+            gripper_control_msg.control_msg.Pack(grasp_msg)
 
         # logger.debug("Gripper actuating to width: {}".format(move_msg.width / 0.08))
 
         self._gripper_publisher.send(gripper_control_msg.SerializeToString())
-        # elif action >= 0.0:  #  and self.last_gripper_action == 0:
-        #     grasp_msg = franka_controller_pb2.FrankaGripperGraspMessage()
-        #     grasp_msg.width = -0.01
-        #     grasp_msg.speed = 0.5
-        #     grasp_msg.force = 30.0
-        #     grasp_msg.epsilon_inner = 0.08
-        #     grasp_msg.epsilon_outer = 0.08
 
         #     gripper_control_msg.control_msg.Pack(grasp_msg)
 
