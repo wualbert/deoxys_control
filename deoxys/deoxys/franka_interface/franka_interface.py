@@ -135,7 +135,7 @@ class FrankaInterface:
         self.counter = 0
         self.termination = False
 
-        self._state_sub_thread = threading.Thread(target=self._get_state)
+        self._state_sub_thread = threading.Thread(target=self.get_state)
         self._state_sub_thread.daemon = True
         self._state_sub_thread.start()
 

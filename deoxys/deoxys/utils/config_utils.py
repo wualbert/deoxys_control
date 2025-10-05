@@ -2,7 +2,6 @@ import argparse
 import logging
 import os
 import pprint
-from asyncore import file_dispatcher
 from pathlib import Path
 from typing import Type
 
@@ -151,7 +150,8 @@ def verify_controller_config(controller_cfg: dict, use_default=True):
     if controller_cfg["controller_type"] in ["OSC_POSE", "OSC_YAW", "OSC_POSITION"]:
         # Control gains
         if not check_attr(controller_cfg, "Kp"):
-            controller_cfg["Kp"] = {"translation": [150.0] * 3, "rotation": [250.0] * 3}
+            controller_cfg["Kp"] = {"translation": [
+                150.0] * 3, "rotation": [250.0] * 3}
             logger.warning("field Kp is not specified!!!")
             field_missing = True
         else:
@@ -190,16 +190,19 @@ def verify_controller_config(controller_cfg: dict, use_default=True):
             assert len(controller_cfg.residual_mass_vec) == 7
         # Action scale for OSC controllers
         if not check_attr(controller_cfg, "action_scale"):
-            controller_cfg["action_scale"] = {"translation": 0.05, "rotation": 1.0}
+            controller_cfg["action_scale"] = {
+                "translation": 0.05, "rotation": 1.0}
             logger.warning("field action_scale not specified!!!")
         else:
             if not check_attr(controller_cfg["action_scale"], "translation"):
                 controller_cfg["action_scale"]["translation"] = 0.05
-                logger.warning("field translation in action_scale not specified!!!")
+                logger.warning(
+                    "field translation in action_scale not specified!!!")
                 field_missing = True
             if not check_attr(controller_cfg["action_scale"], "rotation"):
                 controller_cfg["action_scale"]["rotation"] = 1.0
-                logger.warning("field rotation in action_scale not specified!!!")
+                logger.warning(
+                    "field rotation in action_scale not specified!!!")
                 field_missing = True
 
     elif controller_cfg["controller_type"] == "JOINT_IMPEDANCE":
@@ -215,7 +218,8 @@ def verify_controller_config(controller_cfg: dict, use_default=True):
             logger.warning("field joint_kp not manually specified!!!")
             field_missing = True
         if not check_attr(controller_cfg, "joint_kd"):
-            controller_cfg.joint_kd = 2 * np.sqrt(controller_cfg.joint_kp).tolist()
+            controller_cfg.joint_kd = 2 * \
+                np.sqrt(controller_cfg.joint_kp).tolist()
             logger.debug(
                 "field joint_kd not manually specified, switch to the critical damping formula."
             )
