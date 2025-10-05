@@ -76,6 +76,7 @@ class FrankaInterface:
         control_timeout (float, optional): _description_. Defaults to 1.0.
         has_gripper (bool, optional): _description_. Defaults to True.
         use_visualizer (bool, optional): _description_. Defaults to False.
+        mock_mode (bool, optional): If True, runs in mock mode without real hardware. Defaults to False.
     """
 
     def __init__(
@@ -87,34 +88,56 @@ class FrankaInterface:
         has_gripper: bool = True,
         use_visualizer: bool = False,
         automatic_gripper_reset: bool = True,
+        mock_mode: bool = False,
     ):
+        self.mock_mode = mock_mode
+
+        # Initialize mock state variables for simulation
+        if self.mock_mode:
+            logger.info("Running in MOCK MODE - no real hardware connection")
+            # Default joint positions for Franka robot (approximate home position)
+            self._mock_joint_positions = np.array([0.0, -0.785, 0.0, -2.356, 0.0, 1.571, 0.785])
+            self._mock_joint_velocities = np.zeros(7)
+            self._mock_desired_joint_positions = self._mock_joint_positions.copy()
+            self._mock_gripper_width = 0.08  # Max open position
+            self._mock_eef_pose = self._compute_mock_eef_pose()
+
         general_cfg = YamlConfig(general_cfg_file).as_easydict()
         self._name = general_cfg.PC.NAME
-        self._ip = general_cfg.NUC.IP
+        self._ip = general_cfg.NUC.IP if not self.mock_mode else "127.0.0.1"
         self._pub_port = general_cfg.NUC.SUB_PORT
         self._sub_port = general_cfg.NUC.PUB_PORT
 
         self._gripper_pub_port = general_cfg.NUC.GRIPPER_SUB_PORT
         self._gripper_sub_port = general_cfg.NUC.GRIPPER_PUB_PORT
 
-        self._context = zmq.Context()
-        self._publisher = self._context.socket(zmq.PUB)
-        self._subscriber = self._context.socket(zmq.SUB)
+        if not self.mock_mode:
+            # Real hardware mode - set up ZMQ connections
+            self._context = zmq.Context()
+            self._publisher = self._context.socket(zmq.PUB)
+            self._subscriber = self._context.socket(zmq.SUB)
 
-        self._gripper_publisher = self._context.socket(zmq.PUB)
-        self._gripper_subscriber = self._context.socket(zmq.SUB)
+            self._gripper_publisher = self._context.socket(zmq.PUB)
+            self._gripper_subscriber = self._context.socket(zmq.SUB)
 
-        # publisher
-        self._publisher.bind(f"tcp://*:{self._pub_port}")
-        self._gripper_publisher.bind(f"tcp://*:{self._gripper_pub_port}")
+            # publisher
+            self._publisher.bind(f"tcp://*:{self._pub_port}")
+            self._gripper_publisher.bind(f"tcp://*:{self._gripper_pub_port}")
 
-        # subscriber
-        self._subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
-        self._subscriber.connect(f"tcp://{self._ip}:{self._sub_port}")
+            # subscriber
+            self._subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
+            self._subscriber.connect(f"tcp://{self._ip}:{self._sub_port}")
 
-        self._gripper_subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
-        self._gripper_subscriber.connect(
-            f"tcp://{self._ip}:{self._gripper_sub_port}")
+            self._gripper_subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
+            self._gripper_subscriber.connect(
+                f"tcp://{self._ip}:{self._gripper_sub_port}")
+        else:
+            # Mock mode - no real ZMQ connections needed
+            self._context = None
+            self._publisher = None
+            self._subscriber = None
+            self._gripper_publisher = None
+            self._gripper_subscriber = None
 
         self._state_buffer = []
         self._state_buffer_idx = 0
@@ -135,12 +158,17 @@ class FrankaInterface:
         self.counter = 0
         self.termination = False
 
-        self._state_sub_thread = threading.Thread(target=self.get_state)
+        # Start state subscription threads
+        if self.mock_mode:
+            self._state_sub_thread = threading.Thread(target=self._mock_state_publisher)
+            self._gripper_sub_thread = threading.Thread(target=self._mock_gripper_state_publisher)
+        else:
+            self._state_sub_thread = threading.Thread(target=self.get_state)
+            self._gripper_sub_thread = threading.Thread(target=self.get_gripper_state)
+
         self._state_sub_thread.daemon = True
         self._state_sub_thread.start()
 
-        self._gripper_sub_thread = threading.Thread(
-            target=self.get_gripper_state)
         self._gripper_sub_thread.daemon = True
         self._gripper_sub_thread.start()
 
@@ -198,7 +226,121 @@ class FrankaInterface:
             except:
                 pass
 
+    def _compute_mock_eef_pose(self) -> np.ndarray:
+        """Compute a mock end-effector pose based on joint positions.
+        Returns a 4x4 transformation matrix in column-major format (for protobuf compatibility).
+        """
+        # Simple approximation - in reality this would require forward kinematics
+        # Using a typical Franka pose when joints are at home position
+        # This is a placeholder - you could integrate with MuJoCo or PyBullet for accurate FK
+        T = np.eye(4)
+        T[0, 3] = 0.5  # x position
+        T[1, 3] = 0.0  # y position
+        T[2, 3] = 0.5  # z position
+        # Return in column-major format (transpose)
+        return T.T.flatten()
+
+    def _mock_state_publisher(self):
+        """Publish mock robot states at the specified frequency."""
+        interval = 1.0 / self._state_freq
+        while not self.termination:
+            try:
+                # Create mock robot state message
+                robot_state = franka_robot_state_pb2.FrankaRobotStateMessage()
+
+                # Simulate smooth joint movement towards desired positions
+                alpha = 0.1  # Smoothing factor
+                self._mock_joint_positions = (
+                    alpha * self._mock_desired_joint_positions +
+                    (1 - alpha) * self._mock_joint_positions
+                )
+
+                # Set joint positions
+                robot_state.q[:] = self._mock_joint_positions.tolist()
+                robot_state.q_d[:] = self._mock_desired_joint_positions.tolist()
+                robot_state.dq[:] = self._mock_joint_velocities.tolist()
+
+                # Set end-effector pose (4x4 matrix in column-major format)
+                robot_state.O_T_EE[:] = self._compute_mock_eef_pose().tolist()
+
+                # Add to buffer
+                self._state_buffer.append(robot_state)
+
+                # Limit buffer size to prevent memory issues
+                if len(self._state_buffer) > 1000:
+                    self._state_buffer = self._state_buffer[-500:]
+
+                time.sleep(interval)
+            except Exception as e:
+                logger.error(f"Error in mock state publisher: {e}")
+                pass
+
+    def _mock_gripper_state_publisher(self):
+        """Publish mock gripper states at the specified frequency."""
+        interval = 1.0 / self._state_freq
+        while not self.termination:
+            try:
+                # Create mock gripper state message
+                gripper_state = franka_robot_state_pb2.FrankaGripperStateMessage()
+
+                # Set gripper width
+                gripper_state.width = self._mock_gripper_width
+
+                # Add to buffer
+                self._gripper_state_buffer.append(gripper_state)
+
+                # Limit buffer size
+                if len(self._gripper_state_buffer) > 1000:
+                    self._gripper_state_buffer = self._gripper_state_buffer[-500:]
+
+                time.sleep(interval)
+            except Exception as e:
+                logger.error(f"Error in mock gripper state publisher: {e}")
+                pass
+
+    def _update_mock_state_from_action(self, controller_type: str, action: np.ndarray, controller_cfg: dict):
+        """Update mock robot state based on control action."""
+        if controller_type == "JOINT_POSITION":
+            # Update desired joint positions
+            if controller_cfg.is_delta:
+                self._mock_desired_joint_positions += action[:7]
+            else:
+                self._mock_desired_joint_positions = action[:7].copy()
+
+            # Clip to joint limits (approximate Franka limits)
+            joint_limits = [
+                (-2.8973, 2.8973),  # Joint 1
+                (-1.7628, 1.7628),  # Joint 2
+                (-2.8973, 2.8973),  # Joint 3
+                (-3.0718, -0.0698), # Joint 4
+                (-2.8973, 2.8973),  # Joint 5
+                (-0.0175, 3.7525),  # Joint 6
+                (-2.8973, 2.8973),  # Joint 7
+            ]
+            for i, (low, high) in enumerate(joint_limits):
+                self._mock_desired_joint_positions[i] = np.clip(
+                    self._mock_desired_joint_positions[i], low, high
+                )
+
+        elif controller_type in ["OSC_POSE", "OSC_POSITION", "OSC_YAW", "CARTESIAN_VELOCITY"]:
+            # For Cartesian control, we'd need inverse kinematics
+            # For now, just make small changes to joint positions to simulate movement
+            if controller_cfg.is_delta:
+                # Simple approximation: map Cartesian deltas to joint deltas
+                cart_delta = action[:6]
+                joint_delta = cart_delta[:3] * 0.01  # Scale down for stability
+                self._mock_desired_joint_positions[:3] += joint_delta
+                self._mock_desired_joint_positions[4:7] += cart_delta[3:6] * 0.01
+
+            # Update mock end-effector pose (simplified)
+            self._mock_eef_pose = self._compute_mock_eef_pose()
+
     def preprocess(self):
+        if self.mock_mode:
+            # In mock mode, just reset gripper to open position
+            self._mock_gripper_width = 0.08
+            logger.debug("Mock mode: Gripper reset to open position")
+            return
 
         gripper_control_msg = franka_controller_pb2.FrankaGripperControlMessage()
         move_msg = franka_controller_pb2.FrankaGripperMoveMessage()
@@ -312,8 +454,12 @@ class FrankaInterface:
 
             control_msg.state_estimator_msg.CopyFrom(state_estimator_msg)
 
-            msg_str = control_msg.SerializeToString()
-            self._publisher.send(msg_str)
+            if self.mock_mode:
+                # In mock mode, update internal state instead of sending message
+                self._update_mock_state_from_action(controller_type, action, controller_cfg)
+            else:
+                msg_str = control_msg.SerializeToString()
+                self._publisher.send(msg_str)
 
         elif controller_type == "OSC_POSITION":
             assert controller_cfg is not None
@@ -350,8 +496,12 @@ class FrankaInterface:
 
             control_msg.state_estimator_msg.CopyFrom(state_estimator_msg)
 
-            msg_str = control_msg.SerializeToString()
-            # self._publisher.send(msg_str)
+            if self.mock_mode:
+                # In mock mode, update internal state instead of sending message
+                self._update_mock_state_from_action(controller_type, action, controller_cfg)
+            else:
+                msg_str = control_msg.SerializeToString()
+                self._publisher.send(msg_str)
 
         elif controller_type == "OSC_YAW":
             assert controller_cfg is not None
@@ -388,8 +538,12 @@ class FrankaInterface:
 
             control_msg.state_estimator_msg.CopyFrom(state_estimator_msg)
 
-            msg_str = control_msg.SerializeToString()
-            self._publisher.send(msg_str)
+            if self.mock_mode:
+                # In mock mode, update internal state instead of sending message
+                self._update_mock_state_from_action(controller_type, action, controller_cfg)
+            else:
+                msg_str = control_msg.SerializeToString()
+                self._publisher.send(msg_str)
 
         elif controller_type == "JOINT_POSITION":
             assert controller_cfg is not None
@@ -418,8 +572,12 @@ class FrankaInterface:
 
             control_msg.state_estimator_msg.CopyFrom(state_estimator_msg)
 
-            msg_str = control_msg.SerializeToString()
-            self._publisher.send(msg_str)
+            if self.mock_mode:
+                # In mock mode, update internal state instead of sending message
+                self._update_mock_state_from_action(controller_type, action, controller_cfg)
+            else:
+                msg_str = control_msg.SerializeToString()
+                self._publisher.send(msg_str)
 
         elif controller_type == "JOINT_IMPEDANCE":
             assert controller_cfg is not None
@@ -451,8 +609,12 @@ class FrankaInterface:
 
             control_msg.state_estimator_msg.CopyFrom(state_estimator_msg)
 
-            msg_str = control_msg.SerializeToString()
-            self._publisher.send(msg_str)
+            if self.mock_mode:
+                # In mock mode, update internal state instead of sending message
+                self._update_mock_state_from_action(controller_type, action, controller_cfg)
+            else:
+                msg_str = control_msg.SerializeToString()
+                self._publisher.send(msg_str)
 
         elif controller_type == "CARTESIAN_VELOCITY":
             assert controller_cfg is not None
@@ -488,8 +650,12 @@ class FrankaInterface:
 
             control_msg.state_estimator_msg.CopyFrom(state_estimator_msg)
 
-            msg_str = control_msg.SerializeToString()
-            self._publisher.send(msg_str)
+            if self.mock_mode:
+                # In mock mode, update internal state instead of sending message
+                self._update_mock_state_from_action(controller_type, action, controller_cfg)
+            else:
+                msg_str = control_msg.SerializeToString()
+                self._publisher.send(msg_str)
 
         if self.has_gripper:
             self.gripper_control(action[self.last_gripper_dim])
@@ -506,22 +672,27 @@ class FrankaInterface:
             action should be between 0 and 1
         """
 
-        gripper_control_msg = franka_controller_pb2.FrankaGripperControlMessage()
+        if self.mock_mode:
+            # In mock mode, directly update gripper width
+            self._mock_gripper_width = 0.08 * np.clip(action, 0.0, 1.0)
+            logger.debug(f"Mock mode: Gripper width set to {self._mock_gripper_width}")
+        else:
+            gripper_control_msg = franka_controller_pb2.FrankaGripperControlMessage()
 
-        # action 0-> 1 : Grasp
-        # action 1-> 0 : Release
+            # action 0-> 1 : Grasp
+            # action 1-> 0 : Release
 
-        # TODO (Yifeng): Test if sending grasping or gripper directly
-        # will stop executing the previous command
-        # if action < 0.0:  #  and self.last_gripper_action == 1):
-        move_msg = franka_controller_pb2.FrankaGripperMoveMessage()
-        move_msg.width = 0.08 * np.clip(action, 0.0, 1.0)
-        move_msg.speed = 0.1
-        gripper_control_msg.control_msg.Pack(move_msg)
+            # TODO (Yifeng): Test if sending grasping or gripper directly
+            # will stop executing the previous command
+            # if action < 0.0:  #  and self.last_gripper_action == 1):
+            move_msg = franka_controller_pb2.FrankaGripperMoveMessage()
+            move_msg.width = 0.08 * np.clip(action, 0.0, 1.0)
+            move_msg.speed = 0.1
+            gripper_control_msg.control_msg.Pack(move_msg)
 
-        # logger.debug("Gripper actuating to width: {}".format(move_msg.width / 0.08))
+            # logger.debug("Gripper actuating to width: {}".format(move_msg.width / 0.08))
 
-        self._gripper_publisher.send(gripper_control_msg.SerializeToString())
+            self._gripper_publisher.send(gripper_control_msg.SerializeToString())
         # elif action >= 0.0:  #  and self.last_gripper_action == 0:
         #     grasp_msg = franka_controller_pb2.FrankaGripperGraspMessage()
         #     grasp_msg.width = -0.01
@@ -538,7 +709,10 @@ class FrankaInterface:
         self.last_gripper_action = action
 
     def close(self):
+        self.termination = True
         self._state_sub_thread.join(1.0)
+        if self.mock_mode:
+            logger.info("Mock mode: Closing FrankaInterface")
 
     @property
     def last_eef_pose(self) -> np.ndarray:

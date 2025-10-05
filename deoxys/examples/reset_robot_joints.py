@@ -12,8 +12,13 @@ from deoxys import config_root
 from deoxys.franka_interface import FrankaInterface
 from deoxys.utils import YamlConfig
 from deoxys.utils.input_utils import input2action
-from deoxys.utils.io_devices import SpaceMouse
 from deoxys.utils.log_utils import get_deoxys_example_logger
+
+# Optional import - SpaceMouse not needed for basic joint reset
+try:
+    from deoxys.utils.io_devices import SpaceMouse
+except ImportError:
+    SpaceMouse = None
 
 logger = get_deoxys_example_logger()
 
@@ -27,6 +32,11 @@ def parse_args():
     parser.add_argument(
         "--folder", type=Path, default="data_collection_example/example_data"
     )
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Run in mock mode without real hardware"
+    )
 
     args = parser.parse_args()
     return args
@@ -35,8 +45,13 @@ def parse_args():
 def main():
     args = parse_args()
 
+    if args.mock:
+        logger.info("Running in MOCK MODE - no hardware connection required")
+
     robot_interface = FrankaInterface(
-        config_root + f"/{args.interface_cfg}", use_visualizer=True
+        config_root + f"/{args.interface_cfg}",
+        use_visualizer=True,  # Disable visualizer in mock mode to avoid GLFW issues
+        mock_mode=args.mock
     )
     controller_cfg = YamlConfig(
         config_root + f"/{args.controller_cfg}").as_easydict()
