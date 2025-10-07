@@ -548,6 +548,9 @@ class FrankaInterface:
                         target_orn = p.getQuaternionFromEuler(action[3:6])
 
                     # Use PyBullet inverse kinematics to find joint positions
+                    # Get total number of joints for damping array
+                    num_joints = p.getNumJoints(self._pybullet_robot_uid, physicsClientId=self._pybullet_uid)
+
                     joint_poses = p.calculateInverseKinematics(
                         self._pybullet_robot_uid,
                         self._ee_link_index,
@@ -557,7 +560,7 @@ class FrankaInterface:
                         upperLimits=[2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973],
                         jointRanges=[5.7946, 3.5256, 5.7946, 3.002, 5.7946, 3.77, 5.7946],
                         restPoses=self._mock_joint_positions[:7].tolist(),
-                        jointDamping=[0.1] * 7,
+                        jointDamping=[0.1] * num_joints,  # Damping for all joints in URDF
                         solver=p.IK_DLS,  # Damped Least Squares solver
                         maxNumIterations=100,
                         residualThreshold=1e-5,
