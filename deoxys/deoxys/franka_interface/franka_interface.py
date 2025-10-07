@@ -79,6 +79,47 @@ class FrankaInterface:
         mock_mode (bool, optional): If True, runs in mock mode without real hardware. Defaults to False.
     """
 
+    def _init_pybullet_robot(self):
+        """Initialize PyBullet robot for accurate kinematics in mock mode."""
+        import pybullet as p
+        import pathlib
+
+        FILE_PATH = pathlib.Path(__file__).parent.absolute()
+
+        # If visualizer is being used, it will handle PyBullet GUI connection
+        # We only need a separate DIRECT connection for kinematics calculations
+        if self.use_visualizer:
+            # The visualizer will create its own GUI connection
+            # We create a separate DIRECT connection for kinematics
+            self._pybullet_uid = p.connect(p.DIRECT)
+        else:
+            # No visualizer, use DIRECT mode for kinematics only
+            self._pybullet_uid = p.connect(p.DIRECT)
+
+        # Load robot URDF for kinematics calculations
+        self._pybullet_robot_uid = p.loadURDF(
+            fileName=str(FILE_PATH) + "/robot_models/panda/panda.urdf",
+            basePosition=[0.0, 0.0, 0.0],
+            baseOrientation=[0.0, 0.0, 0.0, 1.0],
+            useFixedBase=True,
+            physicsClientId=self._pybullet_uid,
+            flags=p.URDF_USE_SELF_COLLISION_EXCLUDE_PARENT
+        )
+
+        # End-effector link index (Panda hand - link 8 is the hand, but we need the EE frame)
+        # The EE frame is typically at link index 8 for Panda
+        self._ee_link_index = 8
+
+        # Set initial joint positions
+        for i in range(7):
+            p.resetJointState(
+                self._pybullet_robot_uid, i,
+                self._mock_joint_positions[i],
+                physicsClientId=self._pybullet_uid
+            )
+
+        logger.info("PyBullet robot initialized for kinematics calculations in mock mode")
+
     def __init__(
         self,
         general_cfg_file: str = "config/local-host.yml",
@@ -91,6 +132,7 @@ class FrankaInterface:
         mock_mode: bool = False,
     ):
         self.mock_mode = mock_mode
+        self.use_visualizer = use_visualizer
 
         # Initialize mock state variables for simulation
         if self.mock_mode:
@@ -100,6 +142,17 @@ class FrankaInterface:
             self._mock_joint_velocities = np.zeros(7)
             self._mock_desired_joint_positions = self._mock_joint_positions.copy()
             self._mock_gripper_width = 0.08  # Max open position
+
+            # Initialize PyBullet for accurate kinematics
+            self._pybullet_uid = None
+            self._pybullet_robot_uid = None
+            self._ee_link_index = 8  # Panda EE link index
+            try:
+                self._init_pybullet_robot()
+            except Exception as e:
+                logger.warning(f"Failed to initialize PyBullet for mock mode: {e}")
+                logger.warning("Falling back to simple kinematics approximation")
+
             self._mock_eef_pose = self._compute_mock_eef_pose()
 
         general_cfg = YamlConfig(general_cfg_file).as_easydict()
@@ -227,18 +280,100 @@ class FrankaInterface:
                 pass
 
     def _compute_mock_eef_pose(self) -> np.ndarray:
-        """Compute a mock end-effector pose based on joint positions.
+        """Compute end-effector pose using PyBullet forward kinematics.
         Returns a 4x4 transformation matrix in column-major format (for protobuf compatibility).
         """
-        # Simple approximation - in reality this would require forward kinematics
-        # Using a typical Franka pose when joints are at home position
-        # This is a placeholder - you could integrate with MuJoCo or PyBullet for accurate FK
+        if hasattr(self, '_pybullet_uid') and self._pybullet_uid is not None:
+            import pybullet as p
+            try:
+                # Update joint positions in PyBullet
+                for i in range(7):
+                    p.resetJointState(
+                        self._pybullet_robot_uid, i,
+                        self._mock_joint_positions[i],
+                        physicsClientId=self._pybullet_uid
+                    )
+
+                # Force forward kinematics computation
+                p.stepSimulation(physicsClientId=self._pybullet_uid)
+
+                # Get end-effector state
+                link_state = p.getLinkState(
+                    self._pybullet_robot_uid,
+                    self._ee_link_index,
+                    computeForwardKinematics=True,
+                    physicsClientId=self._pybullet_uid
+                )
+
+                pos = link_state[4]  # World position of link frame origin
+                orn = link_state[5]  # World orientation as quaternion (x,y,z,w)
+
+                # Convert to 4x4 transformation matrix
+                T = np.eye(4)
+                T[:3, 3] = pos
+                T[:3, :3] = np.array(p.getMatrixFromQuaternion(orn)).reshape(3, 3)
+
+                # Return in column-major format (transpose) for protobuf
+                return T.T.flatten()
+
+            except Exception as e:
+                logger.warning(f"PyBullet forward kinematics failed: {e}")
+                # Fall back to approximation based on joint positions
+
+        # Improved approximation fallback using simple FK
+        # This is a rough approximation for Franka robot
+        j1, j2, j3, j4, j5, j6, j7 = self._mock_joint_positions
+
+        # Approximate end-effector position based on joint angles
+        # These are rough estimates based on Franka's DH parameters
+        x = 0.3 * np.cos(j1) + 0.2 * np.cos(j1 + j2) + 0.15 * np.cos(j1 + j2 + j3)
+        y = 0.3 * np.sin(j1) + 0.2 * np.sin(j1 + j2) + 0.15 * np.sin(j1 + j2 + j3)
+        z = 0.333 + 0.316 * np.sin(j2) + 0.0825 * np.sin(j2 + j3) + 0.384 * np.sin(j2 + j3 + j4)
+
         T = np.eye(4)
-        T[0, 3] = 0.5  # x position
-        T[1, 3] = 0.0  # y position
-        T[2, 3] = 0.5  # z position
+        T[0, 3] = x
+        T[1, 3] = y
+        T[2, 3] = z
+
+        # Simple orientation based on wrist joints
+        # This is a very rough approximation
+        T[:3, :3] = self._euler_to_rotation_matrix(j5, j6, j7)
+
         # Return in column-major format (transpose)
         return T.T.flatten()
+
+    def _euler_to_rotation_matrix(self, roll, pitch, yaw):
+        """Convert Euler angles to rotation matrix."""
+        cr = np.cos(roll)
+        sr = np.sin(roll)
+        cp = np.cos(pitch)
+        sp = np.sin(pitch)
+        cy = np.cos(yaw)
+        sy = np.sin(yaw)
+
+        R = np.array([
+            [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
+            [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
+            [-sp, cp*sr, cp*cr]
+        ])
+        return R
+
+    def _rotation_matrix_to_euler(self, R):
+        """Convert rotation matrix to Euler angles (roll, pitch, yaw)."""
+        # Check for gimbal lock
+        sy = np.sqrt(R[0, 0]**2 + R[1, 0]**2)
+        singular = sy < 1e-6
+
+        if not singular:
+            x = np.arctan2(R[2, 1], R[2, 2])  # roll
+            y = np.arctan2(-R[2, 0], sy)      # pitch
+            z = np.arctan2(R[1, 0], R[0, 0])  # yaw
+        else:
+            x = np.arctan2(-R[1, 2], R[1, 1])
+            y = np.arctan2(-R[2, 0], sy)
+            z = 0
+
+        return [x, y, z]
 
     def _mock_state_publisher(self):
         """Publish mock robot states at the specified frequency."""
@@ -298,10 +433,32 @@ class FrankaInterface:
                 logger.error(f"Error in mock gripper state publisher: {e}")
                 pass
 
+    def _update_mock_state_simple_cartesian(self, action, controller_cfg):
+        """Simple Cartesian to joint mapping when PyBullet is not available."""
+        if controller_cfg.is_delta:
+            cart_delta = action[:6]
+            # Simple approximation of joint contributions
+            x_delta, y_delta, z_delta = cart_delta[:3]
+            rx_delta, ry_delta, rz_delta = cart_delta[3:6]
+
+            joint_deltas = np.zeros(7)
+            joint_deltas[0] = -y_delta * 2.0 + rz_delta * 0.5
+            joint_deltas[1] = -z_delta * 1.5 - x_delta * 0.5 + ry_delta * 0.3
+            joint_deltas[2] = y_delta * 1.0 - rz_delta * 0.3
+            joint_deltas[3] = -z_delta * 1.2 - x_delta * 0.8 - ry_delta * 0.2
+            joint_deltas[4] = rx_delta * 0.8 + y_delta * 0.5
+            joint_deltas[5] = x_delta * 1.0 + z_delta * 0.5 + ry_delta * 0.5
+            joint_deltas[6] = rz_delta * 1.0 + rx_delta * 0.3
+
+            scale_factor = 2.0
+            joint_deltas *= scale_factor
+            self._mock_desired_joint_positions += joint_deltas
+
     def _update_mock_state_from_action(self, controller_type: str, action: np.ndarray, controller_cfg: dict):
         """Update mock robot state based on control action."""
-        if controller_type == "JOINT_POSITION":
-            # Update desired joint positions
+        if controller_type in ["JOINT_POSITION", "JOINT_IMPEDANCE"]:
+            # Both JOINT_POSITION and JOINT_IMPEDANCE update joint positions similarly
+            # JOINT_IMPEDANCE just adds compliance but in mock mode we treat them the same
             if controller_cfg.is_delta:
                 self._mock_desired_joint_positions += action[:7]
             else:
@@ -323,17 +480,143 @@ class FrankaInterface:
                 )
 
         elif controller_type in ["OSC_POSE", "OSC_POSITION", "OSC_YAW", "CARTESIAN_VELOCITY"]:
-            # For Cartesian control, we'd need inverse kinematics
-            # For now, just make small changes to joint positions to simulate movement
-            if controller_cfg.is_delta:
-                # Simple approximation: map Cartesian deltas to joint deltas
-                cart_delta = action[:6]
-                joint_delta = cart_delta[:3] * 0.01  # Scale down for stability
-                self._mock_desired_joint_positions[:3] += joint_delta
-                self._mock_desired_joint_positions[4:7] += cart_delta[3:6] * 0.01
+            # For Cartesian control, use PyBullet inverse kinematics and Jacobian
+            if hasattr(self, '_pybullet_uid') and self._pybullet_uid is not None:
+                import pybullet as p
+                try:
+                    # Update PyBullet state to current joint positions
+                    for i in range(7):
+                        p.resetJointState(
+                            self._pybullet_robot_uid, i,
+                            self._mock_joint_positions[i],
+                            physicsClientId=self._pybullet_uid
+                        )
 
-            # Update mock end-effector pose (simplified)
-            self._mock_eef_pose = self._compute_mock_eef_pose()
+                    # Get current end-effector pose
+                    link_state = p.getLinkState(
+                        self._pybullet_robot_uid,
+                        self._ee_link_index,
+                        computeForwardKinematics=True,
+                        physicsClientId=self._pybullet_uid
+                    )
+                    current_pos = np.array(link_state[4])  # Current position
+                    current_orn = np.array(link_state[5])  # Current orientation (quaternion)
+
+                    if controller_cfg.is_delta:
+                        # Apply delta action to current pose
+                        cart_delta = action[:6].copy()
+
+                        # Handle different controller types
+                        if controller_type == "CARTESIAN_VELOCITY":
+                            # For velocity control, scale by control interval
+                            cart_delta *= self._control_interval
+
+                        # Apply position delta
+                        target_pos = current_pos + cart_delta[:3]
+
+                        # Apply orientation delta based on controller type
+                        if controller_type in ["OSC_POSE", "OSC_YAW"]:
+                            # Convert current quaternion to rotation matrix
+                            current_rot = np.array(p.getMatrixFromQuaternion(current_orn)).reshape(3, 3)
+
+                            # Apply rotation delta
+                            if controller_type == "OSC_YAW":
+                                # Only apply yaw rotation
+                                delta_rot = self._euler_to_rotation_matrix(0, 0, cart_delta[5])
+                            else:
+                                # Full orientation control
+                                delta_rot = self._euler_to_rotation_matrix(cart_delta[3], cart_delta[4], cart_delta[5])
+
+                            target_rot = current_rot @ delta_rot
+                            # Convert rotation matrix to quaternion using PyBullet's Euler conversion
+                            target_orn = p.getQuaternionFromEuler(self._rotation_matrix_to_euler(target_rot))
+                        elif controller_type == "OSC_POSITION":
+                            # Position only control, keep current orientation
+                            target_orn = current_orn
+                        else:  # CARTESIAN_VELOCITY
+                            # Apply angular velocity
+                            angular_vel = cart_delta[3:6]
+                            # Simple integration for orientation
+                            delta_rot = self._euler_to_rotation_matrix(angular_vel[0], angular_vel[1], angular_vel[2])
+                            current_rot = np.array(p.getMatrixFromQuaternion(current_orn)).reshape(3, 3)
+                            target_rot = current_rot @ delta_rot
+                            # Convert rotation matrix to quaternion using PyBullet's Euler conversion
+                            target_orn = p.getQuaternionFromEuler(self._rotation_matrix_to_euler(target_rot))
+                    else:
+                        # Absolute target (not commonly used in these controllers)
+                        target_pos = action[:3]
+                        target_orn = p.getQuaternionFromEuler(action[3:6])
+
+                    # Use PyBullet inverse kinematics to find joint positions
+                    joint_poses = p.calculateInverseKinematics(
+                        self._pybullet_robot_uid,
+                        self._ee_link_index,
+                        target_pos,
+                        target_orn,
+                        lowerLimits=[-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973],
+                        upperLimits=[2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973],
+                        jointRanges=[5.7946, 3.5256, 5.7946, 3.002, 5.7946, 3.77, 5.7946],
+                        restPoses=self._mock_joint_positions[:7].tolist(),
+                        jointDamping=[0.1] * 7,
+                        solver=p.IK_DLS,  # Damped Least Squares solver
+                        maxNumIterations=100,
+                        residualThreshold=1e-5,
+                        physicsClientId=self._pybullet_uid
+                    )
+
+                    # Update desired joint positions
+                    self._mock_desired_joint_positions = np.array(joint_poses[:7])
+
+                    # Alternatively, for smoother control, we can also use Jacobian-based approach
+                    # This is especially useful for velocity control
+                    if controller_type == "CARTESIAN_VELOCITY":
+                        # Calculate Jacobian for velocity mapping
+                        jac_linear, jac_angular = p.calculateJacobian(
+                            self._pybullet_robot_uid,
+                            self._ee_link_index,
+                            [0.0, 0.0, 0.0],  # Local position on end-effector
+                            self._mock_joint_positions[:7].tolist(),
+                            [0.0] * 7,  # Joint velocities (not used for Jacobian calculation)
+                            [0.0] * 7,  # Joint accelerations (not used)
+                            physicsClientId=self._pybullet_uid
+                        )
+
+                        # Stack linear and angular Jacobian (6x7 matrix)
+                        J = np.vstack([np.array(jac_linear)[:, :7], np.array(jac_angular)[:, :7]])
+
+                        # Compute pseudo-inverse with damping
+                        lambda_damping = 0.01
+                        J_pseudo = J.T @ np.linalg.inv(J @ J.T + lambda_damping * np.eye(6))
+
+                        # Map Cartesian velocity to joint velocity
+                        cart_vel = action[:6]
+                        joint_vel = J_pseudo @ cart_vel
+
+                        # Integrate to get position change
+                        self._mock_desired_joint_positions += joint_vel * self._control_interval
+
+                except Exception as e:
+                    logger.warning(f"PyBullet IK/Jacobian computation failed: {e}")
+                    # Fall back to simple approximation
+                    self._update_mock_state_simple_cartesian(action, controller_cfg)
+            else:
+                # No PyBullet available, use simple approximation
+                self._update_mock_state_simple_cartesian(action, controller_cfg)
+
+            # Apply joint limits
+            joint_limits = [
+                (-2.8973, 2.8973),  # Joint 1
+                (-1.7628, 1.7628),  # Joint 2
+                (-2.8973, 2.8973),  # Joint 3
+                (-3.0718, -0.0698), # Joint 4
+                (-2.8973, 2.8973),  # Joint 5
+                (-0.0175, 3.7525),  # Joint 6
+                (-2.8973, 2.8973),  # Joint 7
+            ]
+            for i, (low, high) in enumerate(joint_limits):
+                self._mock_desired_joint_positions[i] = np.clip(
+                    self._mock_desired_joint_positions[i], low, high
+                )
 
     def preprocess(self):
         if self.mock_mode:
