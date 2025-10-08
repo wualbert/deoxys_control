@@ -24,7 +24,7 @@ namespace control_callbacks {
         const franka::Model &model, std::shared_ptr<StateInfo> &current_state_info,
         std::shared_ptr<StateInfo> &goal_state_info, const int &policy_rate,
         const int &traj_rate) {
-            return [&global_handler, &state_publisher, &model, &current_state_info, &goal_state_info, &policy_rate, &traj_rate](const franka::RobotState &robot_state,
+            return [&global_handler, &state_publisher, &model, &current_state_info, &goal_state_info, policy_rate, traj_rate](const franka::RobotState &robot_state,
             franka::Duration period) -> franka::CartesianVelocities {
                 std::chrono::high_resolution_clock::time_point t1 =
                     std::chrono::high_resolution_clock::now();
@@ -44,6 +44,12 @@ namespace control_callbacks {
                 if (!global_handler->running) {
                 franka::CartesianVelocities zero_velocities{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
                 return franka::MotionFinished(zero_velocities);
+                }
+
+                if (!global_handler->traj_interpolator_ptr) {
+                // Trajectory interpolator not initialized yet, return zero velocities
+                franka::CartesianVelocities zero_velocities{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+                return zero_velocities;
                 }
 
                 std::array<double, 6> vel_d_array{};

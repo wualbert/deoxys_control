@@ -22,9 +22,9 @@ CreateTorqueFromCartesianSpaceCallback(
     std::shared_ptr<StateInfo> &goal_state_info, const int &policy_rate,
     const int &traj_rate) {
   return [&global_handler, &state_publisher, &model, &current_state_info,
-          &goal_state_info, &policy_rate,
-          &traj_rate](const franka::RobotState &robot_state,
-                      franka::Duration period) -> franka::Torques {
+          &goal_state_info, policy_rate,
+          traj_rate](const franka::RobotState &robot_state,
+                     franka::Duration period) -> franka::Torques {
     std::chrono::high_resolution_clock::time_point t1 =
         std::chrono::high_resolution_clock::now();
 
@@ -40,6 +40,12 @@ CreateTorqueFromCartesianSpaceCallback(
     if (!global_handler->running) {
       franka::Torques zero_torques{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
       return franka::MotionFinished(zero_torques);
+    }
+
+    if (!global_handler->traj_interpolator_ptr) {
+      // Trajectory interpolator not initialized yet, return zero torques
+      franka::Torques zero_torques{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+      return zero_torques;
     }
 
     std::array<double, 7> tau_d_array{};
@@ -88,9 +94,9 @@ CreateTorqueFromJointSpaceCallback(
     std::shared_ptr<StateInfo> &goal_state_info, const int &policy_rate,
     const int &traj_rate) {
   return [&global_handler, &state_publisher, &model, &current_state_info,
-          &goal_state_info, &policy_rate,
-          &traj_rate](const franka::RobotState &robot_state,
-                      franka::Duration period) -> franka::Torques {
+          &goal_state_info, policy_rate,
+          traj_rate](const franka::RobotState &robot_state,
+                     franka::Duration period) -> franka::Torques {
     std::chrono::high_resolution_clock::time_point t1 =
         std::chrono::high_resolution_clock::now();
 
@@ -106,6 +112,12 @@ CreateTorqueFromJointSpaceCallback(
     if (!global_handler->running) {
       franka::Torques zero_torques{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
       return franka::MotionFinished(zero_torques);
+    }
+
+    if (!global_handler->traj_interpolator_ptr) {
+      // Trajectory interpolator not initialized yet, return zero torques
+      franka::Torques zero_torques{{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+      return zero_torques;
     }
 
     std::array<double, 7> tau_d_array{};

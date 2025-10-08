@@ -570,9 +570,15 @@ int main(int argc, char **argv) {
         } else if (controller_type == ControllerType::JOINT_POSITION) {
           // Joint Position control callback
           global_handler->logger->info("Joint position callback");
-          robot.control(control_callbacks::CreateJointPositionCallback(
-              global_handler, state_publisher, model, current_state_info,
-              goal_state_info, policy_rate, traj_rate));
+          try {
+            robot.control(control_callbacks::CreateJointPositionCallback(
+                global_handler, state_publisher, model, current_state_info,
+                goal_state_info, policy_rate, traj_rate));
+          } catch (const std::exception& e) {
+            global_handler->logger->error("Exception in robot.control (JOINT_POSITION): {}", e.what());
+          } catch (...) {
+            global_handler->logger->error("Unknown exception in robot.control (JOINT_POSITION)");
+          }
         } else if (controller_type == ControllerType::CARTESIAN_VELOCITY) {
           // Cartesian Velocity control callback
           global_handler->logger->info("Cartesian velocity callback");
