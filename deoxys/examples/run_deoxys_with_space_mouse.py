@@ -1,3 +1,22 @@
+"""
+SpaceMouse teleoperation example for Franka robot.
+
+This script demonstrates how to control a Franka robot using a SpaceMouse device.
+It supports both physical robot control and mock mode with visualization.
+
+Usage:
+    # Run with physical robot (auto-fallback to mock if hardware unavailable)
+    python run_deoxys_with_space_mouse.py
+
+    # Explicitly run in mock mode with visualization
+    python run_deoxys_with_space_mouse.py --mock --visualize
+
+    # Run with physical robot only (fail if hardware unavailable)
+    python run_deoxys_with_space_mouse.py --no-auto-mock
+
+    # Custom SpaceMouse vendor/product IDs
+    python run_deoxys_with_space_mouse.py --vendor-id 9583 --product-id 50734
+"""
 import argparse
 import time
 
@@ -18,12 +37,48 @@ def main():
     parser.add_argument("--vendor-id", type=int, default=9583)
     parser.add_argument("--product-id", type=int, default=50734)
 
+    parser.add_argument("--mock", action="store_true",
+                        help="Run in mock mode (no physical robot required)")
+    parser.add_argument("--visualize", action="store_true",
+                        help="Enable PyBullet visualization (only in mock mode)")
+    parser.add_argument("--auto-mock", action="store_true", default=True,
+                        help="Automatically fall back to mock mode if hardware connection fails")
+
     args = parser.parse_args()
+
+    print("=" * 70)
+    print("SpaceMouse Teleoperation for Franka Robot")
+    print("=" * 70)
 
     device = SpaceMouse(vendor_id=args.vendor_id, product_id=args.product_id)
     device.start_control()
 
-    robot_interface = FrankaInterface(args.interface_cfg, use_visualizer=False)
+    # Try to connect to real hardware first, fall back to mock mode if it fails
+    robot_interface = None
+    if args.mock:
+        logger.info("Mock mode explicitly requested - starting in mock mode")
+        robot_interface = FrankaInterface(
+            args.interface_cfg,
+            use_visualizer=args.visualize,
+            mock_mode=True
+        )
+    else:
+        try:
+            logger.info("Attempting to connect to physical robot...")
+            robot_interface = FrankaInterface(args.interface_cfg, use_visualizer=False)
+            logger.info("Successfully connected to physical robot")
+        except Exception as e:
+            if args.auto_mock:
+                logger.warning(f"Failed to connect to physical robot: {e}")
+                logger.info("Auto-mock enabled - falling back to mock mode with visualization")
+                robot_interface = FrankaInterface(
+                    args.interface_cfg,
+                    use_visualizer=True,
+                    mock_mode=True
+                )
+            else:
+                logger.error("Failed to connect to physical robot and auto-mock is disabled")
+                raise
 
     controller_type = args.controller_type
     controller_cfg = get_default_controller_config(controller_type=controller_type)
