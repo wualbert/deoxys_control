@@ -65,8 +65,8 @@ def main():
         -0.01990020486871322,
         -2.4732269941140346,
         -0.01307073642274261,
-        2.30396583422025,
-        0.8480939705504309,
+        2.30396583422025,0.
+        # 0.8480939705504309,
     ]
     # This is for varying initialization of joints a little bit to
     # increase data variation.
