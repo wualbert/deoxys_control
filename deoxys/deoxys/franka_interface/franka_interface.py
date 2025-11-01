@@ -651,8 +651,9 @@ class FrankaInterface:
         action = np.array(action)
         if self.last_time == None:
             self.last_time = time.time_ns()
-        elif not termination:
+        elif not termination and not self.mock_mode:
             # Control the policy frequency if not terminated.
+            # Skip rate limiting in mock mode to avoid blocking simulation
             current_time = time.time_ns()
             remaining_time = self._control_interval - (
                 current_time - self.last_time
@@ -924,9 +925,16 @@ class FrankaInterface:
         if self.has_gripper:
             self.gripper_control(action[self.last_gripper_dim])
 
+        # Update visualizer at reduced rate (10 Hz instead of control rate) to avoid blocking
         if self.use_visualizer and len(self._state_buffer) > 0:
-            self.visualizer.update(
-                joint_positions=np.array(self._state_buffer[-1].q))
+            if not hasattr(self, '_viz_last_update'):
+                self._viz_last_update = time.time()
+                self._viz_update_interval = 0.1  # 10 Hz
+
+            if time.time() - self._viz_last_update >= self._viz_update_interval:
+                self.visualizer.update(
+                    joint_positions=np.array(self._state_buffer[-1].q))
+                self._viz_last_update = time.time()
 
     def gripper_control(self, action: float):
         """Control the gripper
