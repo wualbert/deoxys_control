@@ -79,7 +79,7 @@ class PybulletVisualizer(Visualizer):
         # Render
         pybullet.stepSimulation(physicsClientId=self._uid)
 
-    def update(self, joint_positions, vis_gripper=False, draw_ee_frame=True):
+    def update(self, joint_positions, vis_gripper=False, draw_ee_frame=False):
         # Update states
         num_robot_joints = 0
         if not vis_gripper:
@@ -108,7 +108,9 @@ class PybulletVisualizer(Visualizer):
         marker_pos, marker_quat = marker_link_state[0], marker_link_state[1]
         return (marker_pos, marker_quat)
 
-    def draw_coordinate_frame(self, position, orientation, axis_length=0.1, line_width=3):
+    def draw_coordinate_frame(
+        self, position, orientation, axis_length=0.1, line_width=3
+    ):
         """Draw a coordinate frame (X, Y, Z axes) at the specified pose.
 
         Args:
@@ -150,7 +152,7 @@ class PybulletVisualizer(Visualizer):
                 lineToXYZ=axis_end.tolist(),
                 lineColorRGB=color,
                 lineWidth=line_width,
-                physicsClientId=self._uid
+                physicsClientId=self._uid,
             )
             line_ids.append(line_id)
 
@@ -177,7 +179,7 @@ class PybulletVisualizer(Visualizer):
             self.robot_uid,
             self.ee_link_index,
             computeForwardKinematics=True,
-            physicsClientId=self._uid
+            physicsClientId=self._uid,
         )
 
         pos = np.array(link_state[4])  # World position
