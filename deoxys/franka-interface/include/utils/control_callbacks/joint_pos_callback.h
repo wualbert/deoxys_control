@@ -1,6 +1,7 @@
 // Copyright 2022 Yifeng Zhu
 
 #include <chrono>
+#include <cmath>
 #include <franka/model.h>
 #include <franka/robot.h>
 
@@ -82,15 +83,18 @@ CreateJointPositionCallback(
 
       // Exponential filter for smooth streaming (eliminates velocity
       // discontinuities from interpolator zero-velocity restarts at each Reset)
-      static Eigen::Matrix<double, 7, 1> filtered_q;
+      static Eigen::Matrix<double, 7, 1> filtered_q = Eigen::Matrix<double, 7, 1>::Zero();
       static bool filter_initialized = false;
-      if (current_time < 0.001 || !filter_initialized) {
+      if (current_time < 0.001 || !filter_initialized || !std::isfinite(filtered_q[0])) {
         filtered_q = desired_q;
         filter_initialized = true;
       } else {
         constexpr double kTau = 0.03;  // 30ms time constant
         double alpha = 1.0 - std::exp(-period.toSec() / kTau);
         filtered_q = filtered_q + alpha * (desired_q - filtered_q);
+        if (!std::isfinite(filtered_q[0])) {
+          filtered_q = desired_q;  // Fallback to unfiltered on NaN
+        }
       }
       desired_q = filtered_q;
 
