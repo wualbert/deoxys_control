@@ -53,7 +53,8 @@ namespace control_callbacks {
                 }
 
                 std::array<double, 6> vel_d_array{};
-                if (global_handler->time == 0.) {
+                double current_time = global_handler->time.load();
+                if (current_time == 0.) {
                 global_handler->traj_interpolator_ptr->Reset(
                     0., current_state_info->twist_trans_EE_in_base_frame,
                     current_state_info->twist_rot_EE_in_base_frame,
@@ -61,13 +62,14 @@ namespace control_callbacks {
                     goal_state_info->twist_rot_EE_in_base_frame, policy_rate, traj_rate,
                     global_handler->traj_interpolator_time_fraction);
                 }
-                global_handler->time += period.toSec();
+                current_time += period.toSec();
+                global_handler->time.store(current_time);
 
                 Eigen::Vector3d desired_twist_trans_EE_in_base_frame;
                 Eigen::Vector3d desired_twist_rot_EE_in_base_frame;
 
                 global_handler->traj_interpolator_ptr->GetNextStep(
-                    global_handler->time, desired_twist_trans_EE_in_base_frame,
+                    current_time, desired_twist_trans_EE_in_base_frame,
                     desired_twist_rot_EE_in_base_frame);
 
                 state_publisher->UpdateNewState(robot_state, &model);
