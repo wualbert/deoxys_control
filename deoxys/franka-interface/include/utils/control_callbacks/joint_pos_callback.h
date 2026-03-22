@@ -55,16 +55,29 @@ CreateJointPositionCallback(
         return output;
       }
 
-      if (global_handler->time == 0.0) {
+      double current_time = global_handler->time.load();
+      if (current_time == 0.0) {
         global_handler->traj_interpolator_ptr->Reset(
-            global_handler->time, current_state_info->joint_positions,
+            current_time, current_state_info->joint_positions,
             goal_state_info->joint_positions, policy_rate, traj_rate,
             global_handler->traj_interpolator_time_fraction);
       }
-      global_handler->time += period.toSec();
+
+      // Check for new joint goal from subscription thread (lock-free handoff)
+      if (global_handler->new_joint_goal_ready.load(std::memory_order_acquire)) {
+        Eigen::Matrix<double, 7, 1> new_goal = global_handler->pending_joint_goal;
+        global_handler->new_joint_goal_ready.store(false, std::memory_order_release);
+        global_handler->traj_interpolator_ptr->Reset(
+            current_time, current_state_info->joint_positions,
+            new_goal, policy_rate, traj_rate,
+            global_handler->traj_interpolator_time_fraction);
+      }
+
+      current_time += period.toSec();
+      global_handler->time.store(current_time);
       Eigen::Matrix<double, 7, 1> desired_q;
 
-      global_handler->traj_interpolator_ptr->GetNextStep(global_handler->time,
+      global_handler->traj_interpolator_ptr->GetNextStep(current_time,
                                                          desired_q);
 
       state_publisher->UpdateNewState(robot_state, &model);

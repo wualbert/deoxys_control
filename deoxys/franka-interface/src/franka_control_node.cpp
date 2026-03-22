@@ -500,7 +500,7 @@ int main(int argc, char **argv) {
           case TrajInterpolatorType::LINEAR_POSITION:
           case TrajInterpolatorType::MIN_JERK_POSE:
             global_handler->traj_interpolator_ptr->Reset(
-                global_handler->time, current_state_info->pos_EE_in_base_frame,
+                global_handler->time.load(), current_state_info->pos_EE_in_base_frame,
                 current_state_info->quat_EE_in_base_frame,
                 goal_state_info->pos_EE_in_base_frame,
                 goal_state_info->quat_EE_in_base_frame, policy_rate, traj_rate,
@@ -509,15 +509,16 @@ int main(int argc, char **argv) {
           case TrajInterpolatorType::SMOOTH_JOINT_POSITION:
           case TrajInterpolatorType::MIN_JERK_JOINT_POSITION:
           case TrajInterpolatorType::LINEAR_JOINT_POSITION:
-            global_handler->traj_interpolator_ptr->Reset(
-                global_handler->time, current_state_info->joint_positions,
-                goal_state_info->joint_positions, policy_rate, traj_rate,
-                global_handler->traj_interpolator_time_fraction);
+            // Hand off new goal to callback thread (lock-free).
+            // The callback will call Reset() from its own thread,
+            // avoiding the race condition with GetNextStep().
+            global_handler->pending_joint_goal = goal_state_info->joint_positions;
+            global_handler->new_joint_goal_ready.store(true, std::memory_order_release);
             break;
           case TrajInterpolatorType::COSINE_CARTESIAN_VELOCITY:
           case TrajInterpolatorType::LINEAR_CARTESIAN_VELOCITY:
             global_handler->traj_interpolator_ptr->Reset(
-                global_handler->time, current_state_info->twist_trans_EE_in_base_frame,
+                global_handler->time.load(), current_state_info->twist_trans_EE_in_base_frame,
                 current_state_info->twist_rot_EE_in_base_frame,
                 goal_state_info->twist_trans_EE_in_base_frame,
                 goal_state_info->twist_rot_EE_in_base_frame, policy_rate, traj_rate,
@@ -587,7 +588,7 @@ int main(int argc, char **argv) {
               goal_state_info, policy_rate, traj_rate));
         }
       }
-      global_handler->time = 0.0;
+      global_handler->time.store(0.0);
     }
     state_publisher->StopPublishing();
 

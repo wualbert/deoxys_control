@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <memory>
+#include <Eigen/Dense>
 #include <spdlog/spdlog.h>
 
 #include "controllers/base_controller.h"
@@ -14,7 +15,7 @@
 struct SharedMemory {
   std::atomic_bool running{true};      // controlling control callback
   std::atomic_bool termination{false}; // controlling main loop
-  double time = 0.0;
+  std::atomic<double> time{0.0};
 
   std::shared_ptr<controller::BaseController> controller_ptr;
   std::shared_ptr<traj_utils::BaseTrajInterpolator> traj_interpolator_ptr;
@@ -36,6 +37,12 @@ struct SharedMemory {
   std::atomic_int no_msg_counter;
   std::atomic_bool start{
       false}; // indicate if a message is received and start controlling
+
+  // Lock-free goal handoff: subscription thread writes, callback reads.
+  // Fixes race condition where subscription thread's Reset() was corrupted
+  // by the 1kHz callback's concurrent GetNextStep() calls.
+  std::atomic<bool> new_joint_goal_ready{false};
+  Eigen::Matrix<double, 7, 1> pending_joint_goal;
 };
 
 #endif // DEOXYS_FRANKA_INTERFACE_INCLUDE_UTILS_SHARED_MEMORY_H_
