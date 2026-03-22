@@ -151,6 +151,20 @@ CreateTorqueFromJointSpaceCallback(
     global_handler->traj_interpolator_ptr->GetNextStep(current_time,
                                                        desired_q);
 
+    // Exponential filter for smooth streaming (eliminates velocity
+    // discontinuities from interpolator zero-velocity restarts at each Reset)
+    static Eigen::Matrix<double, 7, 1> filtered_q;
+    static bool filter_initialized = false;
+    if (current_time < 0.001 || !filter_initialized) {
+      filtered_q = desired_q;
+      filter_initialized = true;
+    } else {
+      constexpr double kTau = 0.03;  // 30ms time constant
+      double alpha = 1.0 - std::exp(-period.toSec() / kTau);
+      filtered_q = filtered_q + alpha * (desired_q - filtered_q);
+    }
+    desired_q = filtered_q;
+
     state_publisher->UpdateNewState(robot_state, &model);
 
     tau_d_array = global_handler->controller_ptr->Step(robot_state, desired_q);
