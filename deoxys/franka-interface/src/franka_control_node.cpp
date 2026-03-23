@@ -571,9 +571,17 @@ int main(int argc, char **argv) {
         } else if (controller_type == ControllerType::JOINT_IMPEDANCE) {
           // Joint Impedance control callback
           global_handler->logger->info("Joint impedance callback");
-          robot.control(control_callbacks::CreateTorqueFromJointSpaceCallback(
-              global_handler, state_publisher, model, current_state_info,
-              goal_state_info, policy_rate, traj_rate));
+          try {
+            robot.control(control_callbacks::CreateTorqueFromJointSpaceCallback(
+                global_handler, state_publisher, model, current_state_info,
+                goal_state_info, policy_rate, traj_rate));
+          } catch (const std::exception& e) {
+            global_handler->logger->error("Exception in robot.control (JOINT_IMPEDANCE): {}", e.what());
+            try { robot.automaticErrorRecovery(); } catch (...) {}
+          } catch (...) {
+            global_handler->logger->error("Unknown exception in robot.control (JOINT_IMPEDANCE)");
+            try { robot.automaticErrorRecovery(); } catch (...) {}
+          }
         } else if (controller_type == ControllerType::JOINT_POSITION) {
           // Joint Position control callback
           global_handler->logger->info("Joint position callback");
@@ -583,8 +591,10 @@ int main(int argc, char **argv) {
                 goal_state_info, policy_rate, traj_rate));
           } catch (const std::exception& e) {
             global_handler->logger->error("Exception in robot.control (JOINT_POSITION): {}", e.what());
+            try { robot.automaticErrorRecovery(); global_handler->logger->info("Error recovery after JOINT_POSITION succeeded"); } catch (const std::exception& re) { global_handler->logger->error("Error recovery failed: {}", re.what()); }
           } catch (...) {
             global_handler->logger->error("Unknown exception in robot.control (JOINT_POSITION)");
+            try { robot.automaticErrorRecovery(); } catch (...) {}
           }
         } else if (controller_type == ControllerType::CARTESIAN_VELOCITY) {
           // Cartesian Velocity control callback
