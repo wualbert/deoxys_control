@@ -63,14 +63,14 @@ CreateJointPositionCallback(
             global_handler->traj_interpolator_time_fraction);
       }
 
-      // Check for new joint goal from subscription thread (lock-free handoff)
+      // JOINT_POSITION uses direct Reset() from the subscription thread
+      // (original behavior). Atomic handoff is NOT used here because
+      // mid-trajectory Reset() causes velocity discontinuities that
+      // libfranka's position interface rejects.
+      // Clear the flag if subscription thread set it, so it doesn't
+      // get stale when switching to JOINT_IMPEDANCE later.
       if (global_handler->new_joint_goal_ready.load(std::memory_order_acquire)) {
-        Eigen::Matrix<double, 7, 1> new_goal = global_handler->pending_joint_goal;
         global_handler->new_joint_goal_ready.store(false, std::memory_order_release);
-        global_handler->traj_interpolator_ptr->Reset(
-            current_time, current_state_info->joint_positions,
-            new_goal, policy_rate, traj_rate,
-            global_handler->traj_interpolator_time_fraction);
       }
 
       current_time += period.toSec();

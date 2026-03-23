@@ -509,11 +509,17 @@ int main(int argc, char **argv) {
           case TrajInterpolatorType::SMOOTH_JOINT_POSITION:
           case TrajInterpolatorType::MIN_JERK_JOINT_POSITION:
           case TrajInterpolatorType::LINEAR_JOINT_POSITION:
-            // Hand off new goal to callback thread (lock-free).
-            // The callback will call Reset() from its own thread,
-            // avoiding the race condition with GetNextStep().
-            global_handler->pending_joint_goal = goal_state_info->joint_positions;
-            global_handler->new_joint_goal_ready.store(true, std::memory_order_release);
+            if (controller_type == ControllerType::JOINT_IMPEDANCE) {
+              // Atomic handoff for streaming (avoids race with GetNextStep)
+              global_handler->pending_joint_goal = goal_state_info->joint_positions;
+              global_handler->new_joint_goal_ready.store(true, std::memory_order_release);
+            } else {
+              // Direct Reset for JOINT_POSITION (blocking mode, no race)
+              global_handler->traj_interpolator_ptr->Reset(
+                  global_handler->time.load(), current_state_info->joint_positions,
+                  goal_state_info->joint_positions, policy_rate, traj_rate,
+                  global_handler->traj_interpolator_time_fraction);
+            }
             break;
           case TrajInterpolatorType::COSINE_CARTESIAN_VELOCITY:
           case TrajInterpolatorType::LINEAR_CARTESIAN_VELOCITY:
