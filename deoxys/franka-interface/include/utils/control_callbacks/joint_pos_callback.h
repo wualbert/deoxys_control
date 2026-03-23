@@ -55,29 +55,23 @@ CreateJointPositionCallback(
         return output;
       }
 
-      double current_time = global_handler->time.load();
-      if (current_time == 0.0) {
+      if (global_handler->time == 0.0) {
         global_handler->traj_interpolator_ptr->Reset(
-            current_time, current_state_info->joint_positions,
+            global_handler->time, current_state_info->joint_positions,
             goal_state_info->joint_positions, policy_rate, traj_rate,
             global_handler->traj_interpolator_time_fraction);
       }
 
-      // JOINT_POSITION uses direct Reset() from the subscription thread
-      // (original behavior). Atomic handoff is NOT used here because
-      // mid-trajectory Reset() causes velocity discontinuities that
-      // libfranka's position interface rejects.
-      // Clear the flag if subscription thread set it, so it doesn't
-      // get stale when switching to JOINT_IMPEDANCE later.
+      // Clear the atomic handoff flag if set, so it doesn't get stale
+      // when switching to JOINT_IMPEDANCE later.
       if (global_handler->new_joint_goal_ready.load(std::memory_order_acquire)) {
         global_handler->new_joint_goal_ready.store(false, std::memory_order_release);
       }
 
-      current_time += period.toSec();
-      global_handler->time.store(current_time);
+      global_handler->time += period.toSec();
       Eigen::Matrix<double, 7, 1> desired_q;
 
-      global_handler->traj_interpolator_ptr->GetNextStep(current_time,
+      global_handler->traj_interpolator_ptr->GetNextStep(global_handler->time,
                                                          desired_q);
 
       state_publisher->UpdateNewState(robot_state, &model);

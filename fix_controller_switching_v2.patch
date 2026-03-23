@@ -1,0 +1,70 @@
+--- a/deoxys/deoxys/franka_interface/franka_interface.py
++++ b/deoxys/deoxys/franka_interface/franka_interface.py
+@@ -635,6 +635,8 @@ class FrankaInterface:
+     def control(
+         self,
+         controller_type: str,
+         action: Union[np.ndarray, list],
+         controller_cfg: dict = None,
+         termination: bool = False,
++        force_controller_switch: bool = False,
+     ):
+         """A function that controls every step on the policy level.
+
+         Args:
+             controller_type (str): The type of controller used in this step.
+             action (Union[np.ndarray, list]): The action command for the controller.
+             controller_cfg (dict, optional): Controller configuration. Defaults to None.
+             termination (bool, optional): If set True, the control will be terminated. Defaults to False.
++            force_controller_switch (bool, optional): If True, forces a controller switch even for compatible types. Defaults to False.
+         """
+         action = np.array(action)
+         if self.last_time == None:
+             self.last_time = time.time_ns()
+         elif not termination and not self.mock_mode:
+             current_time = time.time_ns()
+             remaining_time = self._control_interval - (
+                 current_time - self.last_time
+             ) / (10**9)
+             if 0.0001 < remaining_time < self._control_timeout:
+                 time.sleep(remaining_time)
+             self.last_time = time.time_ns()
+
+-        if self._last_controller_type != controller_type:
+-            self.preprocess()
+-            self._last_controller_type = controller_type
++        # Smart controller switching logic
++        if self._last_controller_type != controller_type:
++            # Check if we actually need to switch controllers
++            # The C++ side cannot switch directly between types, it needs NO_CONTROL first
++            # But we can avoid switching if both types are compatible and we're not forcing a switch
++
++            compatible_groups = [
++                ["JOINT_POSITION", "JOINT_IMPEDANCE"],  # Joint control group
++                ["OSC_POSE", "OSC_POSITION", "OSC_YAW"],  # OSC control group
++            ]
++
++            needs_switch = force_controller_switch
++            if not needs_switch and self._last_controller_type is not None:
++                # Check if the controllers are in different compatibility groups
++                for group in compatible_groups:
++                    if self._last_controller_type in group and controller_type not in group:
++                        needs_switch = True
++                        break
++                    elif self._last_controller_type not in group and controller_type in group:
++                        needs_switch = True
++                        break
++
++            if needs_switch:
++                logger.info(f"Controller switch required: {self._last_controller_type} -> {controller_type}")
++                self.preprocess()
++            else:
++                # For compatible controllers, we'll send the command with the new type
++                # but the C++ side will keep using the existing controller
++                # This avoids the restart but may cause some inconsistency
++                logger.debug(f"Skipping controller switch for compatible types: {self._last_controller_type} -> {controller_type}")
++
++            self._last_controller_type = controller_type
+
+         controller_cfg = verify_controller_config(
+             controller_cfg, use_default=True)

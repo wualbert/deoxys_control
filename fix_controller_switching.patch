@@ -1,0 +1,21 @@
+--- a/deoxys/deoxys/franka_interface/franka_interface.py
++++ b/deoxys/deoxys/franka_interface/franka_interface.py
+@@ -663,8 +663,16 @@ class FrankaInterface:
+             self.last_time = time.time_ns()
+
+         if self._last_controller_type != controller_type:
+-            self.preprocess()
+-            self._last_controller_type = controller_type
++            # Only call preprocess if we're actually changing controller types
++            # and not just on the first control call
++            if self._last_controller_type is not None:
++                logger.info(f"Controller type changing from {self._last_controller_type} to {controller_type}")
++                # Only preprocess if switching between incompatible controller types
++                # JOINT_POSITION and JOINT_IMPEDANCE can switch without preprocess
++                if not (self._last_controller_type in ["JOINT_POSITION", "JOINT_IMPEDANCE"] and
++                        controller_type in ["JOINT_POSITION", "JOINT_IMPEDANCE"]):
++                    self.preprocess()
++            self._last_controller_type = controller_type
+
+         controller_cfg = verify_controller_config(
+             controller_cfg, use_default=True)

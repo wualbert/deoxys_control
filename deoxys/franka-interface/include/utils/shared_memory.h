@@ -15,7 +15,7 @@
 struct SharedMemory {
   std::atomic_bool running{true};      // controlling control callback
   std::atomic_bool termination{false}; // controlling main loop
-  std::atomic<double> time{0.0};
+  double time = 0.0;
 
   std::shared_ptr<controller::BaseController> controller_ptr;
   std::shared_ptr<traj_utils::BaseTrajInterpolator> traj_interpolator_ptr;

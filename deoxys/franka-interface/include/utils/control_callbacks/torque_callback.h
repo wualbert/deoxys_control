@@ -50,8 +50,7 @@ CreateTorqueFromCartesianSpaceCallback(
     }
 
     std::array<double, 7> tau_d_array{};
-    double current_time = global_handler->time.load();
-    if (current_time == 0.) {
+    if (global_handler->time == 0.) {
       global_handler->traj_interpolator_ptr->Reset(
           0., current_state_info->pos_EE_in_base_frame,
           current_state_info->quat_EE_in_base_frame,
@@ -59,14 +58,13 @@ CreateTorqueFromCartesianSpaceCallback(
           goal_state_info->quat_EE_in_base_frame, policy_rate, traj_rate,
           global_handler->traj_interpolator_time_fraction);
     }
-    current_time += period.toSec();
-    global_handler->time.store(current_time);
+    global_handler->time += period.toSec();
 
     Eigen::Vector3d desired_pos_EE_in_base_frame;
     Eigen::Quaterniond desired_quat_EE_in_base_frame;
 
     global_handler->traj_interpolator_ptr->GetNextStep(
-        current_time, desired_pos_EE_in_base_frame,
+        global_handler->time, desired_pos_EE_in_base_frame,
         desired_quat_EE_in_base_frame);
 
     state_publisher->UpdateNewState(robot_state, &model);
@@ -124,8 +122,7 @@ CreateTorqueFromJointSpaceCallback(
     }
 
     std::array<double, 7> tau_d_array{};
-    double current_time = global_handler->time.load();
-    if (current_time == 0.) {
+    if (global_handler->time == 0.) {
       global_handler->traj_interpolator_ptr->Reset(
           0., current_state_info->pos_EE_in_base_frame,
           current_state_info->quat_EE_in_base_frame,
@@ -139,24 +136,23 @@ CreateTorqueFromJointSpaceCallback(
       Eigen::Matrix<double, 7, 1> new_goal = global_handler->pending_joint_goal;
       global_handler->new_joint_goal_ready.store(false, std::memory_order_release);
       global_handler->traj_interpolator_ptr->Reset(
-          current_time, current_state_info->joint_positions,
+          global_handler->time, current_state_info->joint_positions,
           new_goal, policy_rate, traj_rate,
           global_handler->traj_interpolator_time_fraction);
     }
 
-    current_time += period.toSec();
-    global_handler->time.store(current_time);
+    global_handler->time += period.toSec();
 
     Eigen::Matrix<double, 7, 1> desired_q;
 
-    global_handler->traj_interpolator_ptr->GetNextStep(current_time,
+    global_handler->traj_interpolator_ptr->GetNextStep(global_handler->time,
                                                        desired_q);
 
     // Exponential filter for smooth streaming (eliminates velocity
     // discontinuities from interpolator zero-velocity restarts at each Reset)
     static Eigen::Matrix<double, 7, 1> filtered_q = Eigen::Matrix<double, 7, 1>::Zero();
     static bool filter_initialized = false;
-    if (current_time < 0.001 || !filter_initialized || !std::isfinite(filtered_q[0])) {
+    if (global_handler->time < 0.001 || !filter_initialized || !std::isfinite(filtered_q[0])) {
       filtered_q = desired_q;
       filter_initialized = true;
     } else {

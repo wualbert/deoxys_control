@@ -500,7 +500,7 @@ int main(int argc, char **argv) {
           case TrajInterpolatorType::LINEAR_POSITION:
           case TrajInterpolatorType::MIN_JERK_POSE:
             global_handler->traj_interpolator_ptr->Reset(
-                global_handler->time.load(), current_state_info->pos_EE_in_base_frame,
+                global_handler->time, current_state_info->pos_EE_in_base_frame,
                 current_state_info->quat_EE_in_base_frame,
                 goal_state_info->pos_EE_in_base_frame,
                 goal_state_info->quat_EE_in_base_frame, policy_rate, traj_rate,
@@ -516,7 +516,7 @@ int main(int argc, char **argv) {
             } else {
               // Direct Reset for JOINT_POSITION (blocking mode, no race)
               global_handler->traj_interpolator_ptr->Reset(
-                  global_handler->time.load(), current_state_info->joint_positions,
+                  global_handler->time, current_state_info->joint_positions,
                   goal_state_info->joint_positions, policy_rate, traj_rate,
                   global_handler->traj_interpolator_time_fraction);
             }
@@ -524,7 +524,7 @@ int main(int argc, char **argv) {
           case TrajInterpolatorType::COSINE_CARTESIAN_VELOCITY:
           case TrajInterpolatorType::LINEAR_CARTESIAN_VELOCITY:
             global_handler->traj_interpolator_ptr->Reset(
-                global_handler->time.load(), current_state_info->twist_trans_EE_in_base_frame,
+                global_handler->time, current_state_info->twist_trans_EE_in_base_frame,
                 current_state_info->twist_rot_EE_in_base_frame,
                 goal_state_info->twist_trans_EE_in_base_frame,
                 goal_state_info->twist_rot_EE_in_base_frame, policy_rate, traj_rate,
@@ -594,7 +594,7 @@ int main(int argc, char **argv) {
               goal_state_info, policy_rate, traj_rate));
         }
       }
-      global_handler->time.store(0.0);
+      global_handler->time = 0.0;
     }
     state_publisher->StopPublishing();
 
